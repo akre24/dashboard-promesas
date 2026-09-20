@@ -16,9 +16,9 @@ function parseDate(v){
   if(!v) return null;
   let s=String(v).trim();
   let d;
-  if(/^\\d{1,2}\\/\\d{1,2}\\/\\d{4}/.test(s)){
-    const [a,b,c]=s.split(/[\\/\\s]/); d=new Date(Number(c),Number(b)-1,Number(a));
-  } else if(/^\\d{4}-\\d{2}-\\d{2}/.test(s)) d=new Date(s.slice(0,10)+"T12:00:00");
+  if(/^\d{1,2}\/\d{1,2}\/\d{4}/.test(s)){
+    const [a,b,c]=s.split(/[\/\s]/); d=new Date(Number(c),Number(b)-1,Number(a));
+  } else if(/^\d{4}-\d{2}-\d{2}/.test(s)) d=new Date(s.slice(0,10)+"T12:00:00");
   else d=new Date(s);
   return isNaN(d)?null:d;
 }
