@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard Ejecutivo | Promesas de Pago</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <div class="eyebrow">COBRANZA · DIRECCIÓN GENERAL</div>
+      <h1>Dashboard Ejecutivo de Promesas</h1>
+      <p>Seguimiento de gestión, compromisos y efectividad</p>
+    </div>
+    <div class="updated">
+      <span>Última actualización</span>
+      <strong id="lastUpdate">—</strong>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="filters panel">
+      <div class="section-title">
+        <div>
+          <span class="eyebrow">FILTROS</span>
+          <h2>Consulta ejecutiva</h2>
+        </div>
+        <button id="resetBtn" class="btn secondary">Limpiar filtros</button>
+      </div>
+      <div class="filter-grid">
+        <label>Desde<input type="date" id="dateFrom"></label>
+        <label>Hasta<input type="date" id="dateTo"></label>
+        <label>Asesor<select id="advisorFilter"><option value="">Todos</option></select></label>
+        <label>Tipo de contacto<select id="contactFilter"><option value="">Todos</option></select></label>
+        <label>Supervisor<select id="supervisorFilter"><option value="">Todos</option></select></label>
+        <label>Banner<select id="bannerFilter"><option value="">Todos</option></select></label>
+      </div>
+      <div id="status" class="status">Cargando información…</div>
+    </section>
+
+    <section class="kpis">
+      <article class="kpi"><span>Promesas</span><strong id="kpiPromises">0</strong><small>Registros con fecha de compromiso</small></article>
+      <article class="kpi"><span>Correctas</span><strong id="kpiCorrect">0</strong><small id="kpiCorrectPct">0%</small></article>
+      <article class="kpi"><span>Incorrectas</span><strong id="kpiIncorrect">0</strong><small id="kpiIncorrectPct">0%</small></article>
+      <article class="kpi accent"><span>Efectivas</span><strong id="kpiEffective">0</strong><small id="kpiEffectivePct">0%</small></article>
+      <article class="kpi"><span>Monto comprometido</span><strong id="kpiAmount">$0</strong><small>Sobre las promesas filtradas</small></article>
+      <article class="kpi"><span>Monto recuperado</span><strong id="kpiPaid">$0</strong><small>Pagos realizados</small></article>
+    </section>
+
+    <section class="grid-2">
+      <article class="panel chart-panel">
+        <div class="section-title"><div><span class="eyebrow">EVOLUCIÓN</span><h2>Promesas por día</h2></div></div>
+        <canvas id="dailyChart"></canvas>
+      </article>
+      <article class="panel chart-panel">
+        <div class="section-title"><div><span class="eyebrow">RESULTADO</span><h2>Embudo de efectividad</h2></div></div>
+        <canvas id="funnelChart"></canvas>
+      </article>
+    </section>
+
+    <section class="grid-2">
+      <article class="panel">
+        <div class="section-title"><div><span class="eyebrow">ASESORES</span><h2>Resultados por asesor</h2></div></div>
+        <div class="table-wrap"><table id="advisorTable">
+          <thead><tr><th>Asesor</th><th>Promesas</th><th>Correctas</th><th>Incorrectas</th><th>Efectivas</th><th>% Efect.</th><th>Monto</th></tr></thead>
+          <tbody></tbody>
+        </table></div>
+      </article>
+      <article class="panel">
+        <div class="section-title"><div><span class="eyebrow">CONTACTO</span><h2>Tipo de contacto</h2></div></div>
+        <div class="table-wrap"><table id="contactTable">
+          <thead><tr><th>Tipo</th><th>Promesas</th><th>Correctas</th><th>Incorrectas</th><th>Efectivas</th><th>% Efect.</th></tr></thead>
+          <tbody></tbody>
+        </table></div>
+      </article>
+    </section>
+
+    <section class="panel">
+      <div class="section-title">
+        <div><span class="eyebrow">DETALLE DIARIO</span><h2>Comportamiento por fecha</h2></div>
+        <div class="legend"><span><i class="dot correct"></i>Correcta</span><span><i class="dot incorrect"></i>Incorrecta</span><span><i class="dot effective"></i>Efectiva</span></div>
+      </div>
+      <div class="table-wrap"><table id="dailyTable">
+        <thead><tr><th>Fecha</th><th>Promesas</th><th>Correctas</th><th>Incorrectas</th><th>Efectivas</th><th>No efectivas</th><th>% Efect.</th><th>Monto</th></tr></thead>
+        <tbody></tbody>
+      </table></div>
+    </section>
+
+    <section class="panel">
+      <div class="section-title"><div><span class="eyebrow">SEGUIMIENTO</span><h2>Estado de las promesas</h2></div></div>
+      <div class="status-cards">
+        <div><span>Pagadas</span><strong id="sPaid">0</strong></div>
+        <div><span>Pendientes</span><strong id="sPending">0</strong></div>
+        <div><span>Vencidas</span><strong id="sOverdue">0</strong></div>
+        <div><span>Sin pago</span><strong id="sNoPayment">0</strong></div>
+      </div>
+    </section>
+  </main>
+
+  <footer>Dashboard de seguimiento · Fuente: Google Sheets publicado</footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.3/papaparse.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
