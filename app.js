@@ -33,15 +33,13 @@ function first(r,...names){
 function classify(r){
   const check=key(first(r,"Check"));
   const valid=key(first(r,"Validacion","Validación"));
-  const payments=parseNumber(first(r,"Pagos_Realizados","Pagos Realizados"));
-  const resta=parseNumber(first(r,"Resta"));
   const compromiso=parseDate(first(r,"Fecha compromiso (Solo en caso de ser promesa)","Fecha_Compromiso","Fecha compromiso"));
   const promise=!!compromiso || ["PROMESA","SI","SÍ","1","CORRECTA"].some(x=>check===x||valid===x);
 
   const correct = check==="CORRECTA";
-
   const effective = valid==="EFECTIVA";
   const amount=parseNumber(first(r,"Monto a pagar (Ingresa solo la cantidad sin ningun caracter especial o letra)","Monto a pagar","Monto"));
+  // Monto recuperado = columna Pagos_Realizados
   const paid=parseNumber(first(r,"Pagos_Realizados","Pagos Realizados"));
   return {...r,_date:parseDate(first(r,"Marca temporal")),_promise:promise,_correct:correct,_effective:effective,_amount:amount,_paid:paid,_commit:compromiso};
 }
@@ -83,12 +81,18 @@ function filtered(){
     return true;
   });
 }
+
+// a = monto prometido (promesas correctas), r = monto recuperado (Pagos_Realizados de todas las promesas)
 function aggregate(data, field){
   const m=new Map();
   data.filter(r=>r._promise).forEach(r=>{
     const v=norm(first(r,field))||"Sin dato";
-    if(!m.has(v))m.set(v,{name:v,p:0,c:0,i:0,e:0,a:0});
-    const x=m.get(v);x.p++;if(r._correct){x.c++;x.a+=r._amount}else{x.i++}r._effective&&x.e++;
+    if(!m.has(v))m.set(v,{name:v,p:0,c:0,i:0,e:0,a:0,r:0});
+    const x=m.get(v);
+    x.p++;
+    if(r._correct){x.c++;x.a+=r._amount}else{x.i++}
+    if(r._effective)x.e++;
+    x.r+=r._paid;
   });
   return [...m.values()].sort((a,b)=>b.p-a.p);
 }
@@ -98,7 +102,9 @@ function render(){
   kpiCorrect.textContent=correct.length.toLocaleString("es-MX");kpiCorrectPct.textContent=pct(correct.length,promises.length);
   kpiIncorrect.textContent=incorrect.length.toLocaleString("es-MX");kpiIncorrectPct.textContent=pct(incorrect.length,promises.length);
   kpiEffective.textContent=effective.length.toLocaleString("es-MX");kpiEffectivePct.textContent=pct(effective.length,promises.length);
-  kpiAmount.textContent=money(correct.reduce((s,r)=>s+r._amount,0));kpiPaid.textContent=money(effective.reduce((s,r)=>s+r._paid,0));
+  kpiAmount.textContent=money(correct.reduce((s,r)=>s+r._amount,0));
+  // Monto recuperado: suma de Pagos_Realizados de todas las promesas filtradas
+  kpiPaid.textContent=money(promises.reduce((s,r)=>s+r._paid,0));
   sPaid.textContent=promises.filter(r=>r._paid>0||r._effective&&r._amount>0&&r._amount-r._paid<=0).length.toLocaleString("es-MX");
   sPending.textContent=promises.filter(r=>r._paid<=0&&r._commit&&r._commit>=new Date()).length.toLocaleString("es-MX");
   sOverdue.textContent=promises.filter(r=>r._paid<=0&&r._commit&&r._commit<new Date()).length.toLocaleString("es-MX");
@@ -106,13 +112,23 @@ function render(){
   renderDaily(data);renderAdvisor(data);renderContact(data);renderCharts(promises,correct,incorrect,effective,noEff);
 }
 function renderDaily(data){
-  const m=new Map();data.filter(r=>r._promise&&r._date).forEach(r=>{const d=isoDate(r._date);if(!m.has(d))m.set(d,{p:0,c:0,i:0,e:0,a:0});const x=m.get(d);x.p++;if(r._correct){x.c++;x.a+=r._amount}else{x.i++}r._effective&&x.e++});
-  const vals=[...m.entries()].sort();dailyTable.querySelector("tbody").innerHTML=vals.map(([d,x])=>`<tr><td>${new Date(d+"T12:00:00").toLocaleDateString("es-MX")}</td><td>${x.p}</td><td>${x.c}</td><td>${x.i}</td><td>${x.e}</td><td>${x.c-x.e}</td><td>${pct(x.e,x.c)}</td><td>${money(x.a)}</td></tr>`).join("")||'<tr><td colspan="8">Sin información</td></tr>';
+  const m=new Map();
+  data.filter(r=>r._promise&&r._date).forEach(r=>{
+    const d=isoDate(r._date);
+    if(!m.has(d))m.set(d,{p:0,c:0,i:0,e:0,a:0,r:0});
+    const x=m.get(d);
+    x.p++;
+    if(r._correct){x.c++;x.a+=r._amount}else{x.i++}
+    if(r._effective)x.e++;
+    x.r+=r._paid;
+  });
+  const vals=[...m.entries()].sort();
+  dailyTable.querySelector("tbody").innerHTML=vals.map(([d,x])=>`<tr><td>${new Date(d+"T12:00:00").toLocaleDateString("es-MX")}</td><td>${x.p}</td><td>${x.c}</td><td>${x.i}</td><td>${x.e}</td><td>${x.c-x.e}</td><td>${pct(x.e,x.c)}</td><td>${money(x.a)}</td><td>${money(x.r)}</td></tr>`).join("")||'<tr><td colspan="9">Sin información</td></tr>';
   return vals;
 }
 function renderAdvisor(data){
   const vals=aggregate(data,"Asesor");
-  advisorTable.querySelector("tbody").innerHTML=vals.map(x=>`<tr><td>${escapeHtml(x.name)}</td><td>${x.p}</td><td>${x.c}</td><td>${x.i}</td><td>${x.e}</td><td>${pct(x.e,x.c)}</td><td>${money(x.a)}</td></tr>`).join("")||'<tr><td colspan="7">Sin información</td></tr>';
+  advisorTable.querySelector("tbody").innerHTML=vals.map(x=>`<tr><td>${escapeHtml(x.name)}</td><td>${x.p}</td><td>${x.c}</td><td>${x.i}</td><td>${x.e}</td><td>${pct(x.e,x.c)}</td><td>${money(x.a)}</td><td>${money(x.r)}</td></tr>`).join("")||'<tr><td colspan="8">Sin información</td></tr>';
 }
 function renderContact(data){
   const vals=aggregate(data,"Tipo de contacto");
