@@ -91,20 +91,31 @@ function aggregate(data, field){
     const x=m.get(v);
     x.p++;
     if(r._correct){x.c++;x.a+=r._amount}else{x.i++}
-    if(r._effective)x.e++;
-    x.r+=r._paid;
+    if(r._effective){x.e++;x.r+=r._paid}
   });
   return [...m.values()].sort((a,b)=>b.p-a.p);
 }
+// Escribe los encabezados desde JS para no depender del HTML
+function setHeaders(){
+  const h=(id,cols)=>{
+    const t=document.getElementById(id); if(!t) return;
+    let th=t.querySelector("thead");
+    if(!th){th=document.createElement("thead");t.prepend(th)}
+    th.innerHTML="<tr>"+cols.map(c=>`<th>${c}</th>`).join("")+"</tr>";
+  };
+  h("dailyTable",["Fecha","Promesas","Correctas","Incorrectas","Efectivas","No efectivas","% Efectividad","Monto prometido","Monto recuperado"]);
+  h("advisorTable",["Asesor","Promesas","Correctas","Incorrectas","Efectivas","% Efectividad","Monto prometido","Monto recuperado"]);
+}
 function render(){
+  setHeaders();
   const data=filtered(), promises=data.filter(r=>r._promise), correct=promises.filter(r=>r._correct), incorrect=promises.filter(r=>!r._correct), effective=promises.filter(r=>r._effective), noEff=promises.filter(r=>!r._effective);
   kpiPromises.textContent=promises.length.toLocaleString("es-MX");
   kpiCorrect.textContent=correct.length.toLocaleString("es-MX");kpiCorrectPct.textContent=pct(correct.length,promises.length);
   kpiIncorrect.textContent=incorrect.length.toLocaleString("es-MX");kpiIncorrectPct.textContent=pct(incorrect.length,promises.length);
   kpiEffective.textContent=effective.length.toLocaleString("es-MX");kpiEffectivePct.textContent=pct(effective.length,promises.length);
   kpiAmount.textContent=money(correct.reduce((s,r)=>s+r._amount,0));
-  // Monto recuperado: suma de Pagos_Realizados de todas las promesas filtradas
-  kpiPaid.textContent=money(promises.reduce((s,r)=>s+r._paid,0));
+  // Monto recuperado: Pagos_Realizados solo de promesas efectivas
+  kpiPaid.textContent=money(effective.reduce((s,r)=>s+r._paid,0));
   sPaid.textContent=promises.filter(r=>r._paid>0||r._effective&&r._amount>0&&r._amount-r._paid<=0).length.toLocaleString("es-MX");
   sPending.textContent=promises.filter(r=>r._paid<=0&&r._commit&&r._commit>=new Date()).length.toLocaleString("es-MX");
   sOverdue.textContent=promises.filter(r=>r._paid<=0&&r._commit&&r._commit<new Date()).length.toLocaleString("es-MX");
@@ -119,8 +130,7 @@ function renderDaily(data){
     const x=m.get(d);
     x.p++;
     if(r._correct){x.c++;x.a+=r._amount}else{x.i++}
-    if(r._effective)x.e++;
-    x.r+=r._paid;
+    if(r._effective){x.e++;x.r+=r._paid}
   });
   const vals=[...m.entries()].sort();
   dailyTable.querySelector("tbody").innerHTML=vals.map(([d,x])=>`<tr><td>${new Date(d+"T12:00:00").toLocaleDateString("es-MX")}</td><td>${x.p}</td><td>${x.c}</td><td>${x.i}</td><td>${x.e}</td><td>${x.c-x.e}</td><td>${pct(x.e,x.c)}</td><td>${money(x.a)}</td><td>${money(x.r)}</td></tr>`).join("")||'<tr><td colspan="9">Sin información</td></tr>';
