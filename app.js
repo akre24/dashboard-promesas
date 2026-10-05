@@ -9,7 +9,10 @@ const pct = (a,b) => b ? ((a/b)*100).toFixed(1)+"%" : "0%";
 
 function parseNumber(v){
   if(v===null||v===undefined||v==="") return 0;
-  let s=String(v).replace(/[,$\s]/g,"").replace(/[^\d.-]/g,"");
+  let s=String(v).replace(/[$\s]/g,"");
+  if(/^-?\d+,\d{1,2}$/.test(s)) s=s.replace(",",".");   // coma decimal: 12989,15 → 12989.15
+  else s=s.replace(/,/g,"");                             // coma de miles: 1,234 → 1234
+  s=s.replace(/[^\d.-]/g,"");
   const n=Number(s); return Number.isFinite(n)?n:0;
 }
 function parseDate(v){
