@@ -2,6 +2,7 @@ const CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vT1hSI6MpGQl3_3
 
 let rows = [], dailyChart, funnelChart;
 
+const $ = id => document.getElementById(id);
 const norm = v => String(v ?? "").trim();
 const key = s => norm(s).normalize("NFD").replace(/[\u0300-\u036f]/g,"").toUpperCase();
 const money = n => new Intl.NumberFormat("es-MX",{style:"currency",currency:"MXN",maximumFractionDigits:0}).format(Number(n)||0);
@@ -47,22 +48,6 @@ function classify(r){
   return {...r,_date:parseDate(first(r,"Marca temporal")),_promise:promise,_correct:correct,_effective:effective,_amount:amount,_paid:paid,_commit:compromiso};
 }
 
-function populateFilters(){
-  const configs=[
-    ["advisorFilter","Asesor"],["contactFilter","Tipo de contacto"],["supervisorFilter","SUPERVISOR"]
-  ];
-  configs.forEach(([id,col])=>{
-    const el=document.getElementById(id); const vals=[...new Set(rows.map(r=>norm(first(r,col))).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"es"));
-    el.innerHTML='<option value="">Todos</option>'+vals.map(v=>`<option>${escapeHtml(v)}</option>`).join("");
-  });
-  const bannerVals=[...new Set(rows.map(r=>norm(first(r,"Banner"))).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"es",{numeric:true}));
-  bannerList.innerHTML=bannerVals.map(v=>`<option value="${escapeHtml(v)}">`).join("");
-  const moraVals=[...new Set(rows.map(r=>norm(first(r,MORA_COL))).filter(Boolean))]
-    .sort((a,b)=>a.localeCompare(b,"es",{numeric:true}));
-  moraFilter.innerHTML=moraVals.map(v=>`<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join("");
-  const dates=rows.map(r=>r._date).filter(Boolean).map(isoDate).sort();
-  if(dates.length){dateFrom.value=dates[0];dateTo.value=dates.at(-1)}
-}
 let MORA_COL="MORA INICIAL";
 function detectMoraCol(fields){
   if(!fields)return;
@@ -71,9 +56,22 @@ function detectMoraCol(fields){
 }
 function escapeHtml(s){return String(s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]))}
 
+function populateFilters(){
+  [["advisorFilter","Asesor"],["contactFilter","Tipo de contacto"],["supervisorFilter","SUPERVISOR"]].forEach(([id,col])=>{
+    const vals=[...new Set(rows.map(r=>norm(first(r,col))).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"es"));
+    $(id).innerHTML='<option value="">Todos</option>'+vals.map(v=>`<option>${escapeHtml(v)}</option>`).join("");
+  });
+  const bannerVals=[...new Set(rows.map(r=>norm(first(r,"Banner"))).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"es",{numeric:true}));
+  $("bannerList").innerHTML=bannerVals.map(v=>`<option value="${escapeHtml(v)}">`).join("");
+  const moraVals=[...new Set(rows.map(r=>norm(first(r,MORA_COL))).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"es",{numeric:true}));
+  $("moraFilter").innerHTML=moraVals.map(v=>`<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join("");
+  const dates=rows.map(r=>r._date).filter(Boolean).map(isoDate).sort();
+  if(dates.length){$("dateFrom").value=dates[0];$("dateTo").value=dates.at(-1)}
+}
+
 function filtered(){
-  const from=dateFrom.value,to=dateTo.value, advisor=key(advisorFilter.value),contact=key(contactFilter.value),sup=key(supervisorFilter.value),banner=key(bannerFilter.value.trim());
-  const moras=[...moraFilter.selectedOptions].map(o=>key(o.value));
+  const from=$("dateFrom").value,to=$("dateTo").value,advisor=key($("advisorFilter").value),contact=key($("contactFilter").value),sup=key($("supervisorFilter").value),banner=key($("bannerFilter").value.trim());
+  const moras=[...$("moraFilter").selectedOptions].map(o=>key(o.value));
   return rows.filter(r=>{
     if(from&&isoDate(r._date)<from)return false;if(to&&isoDate(r._date)>to)return false;
     if(advisor&&key(first(r,"Asesor"))!==advisor)return false;
@@ -85,7 +83,7 @@ function filtered(){
   });
 }
 
-// a = monto prometido (promesas correctas), r = monto recuperado (Pagos_Realizados de todas las promesas)
+// a = monto prometido (promesas correctas), r = monto recuperado (Pagos_Realizados de promesas efectivas)
 function aggregate(data, field){
   const m=new Map();
   data.filter(r=>r._promise).forEach(r=>{
@@ -98,10 +96,64 @@ function aggregate(data, field){
   });
   return [...m.values()].sort((a,b)=>b.p-a.p);
 }
+
+// ===== Rotas / Vigentes / En gracia (misma lógica que generar_promesas_cxc.py) =====
+const dayNum = d => d ? new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() : null;
+const matricula = r => norm(first(r,"Matricula","Matrícula","MATRICULA","Banner"))
+  .replace(/\.0$/,"").toUpperCase().replace(/^0+/,"") || "0";
+
+function enrichPromise(r){
+  return {
+    r,
+    mat: matricula(r),
+    fp: parseDate(first(r,"Fecha_Promesa","Fecha Promesa","Fecha compromiso (Solo en caso de ser promesa)","Fecha compromiso")),
+    rg: parseDate(first(r,"Regreso_Gestion","Regreso Gestion")),
+    ts: r._date
+  };
+}
+
+// Si hay matrícula repetida: toma la primera por marca temporal,
+// salvo que esa primera sea posterior a su Regreso_Gestion; entonces toma la segunda.
+function dedupeByMatricula(list){
+  const g = new Map();
+  list.forEach(x => { if(!g.has(x.mat)) g.set(x.mat, []); g.get(x.mat).push(x); });
+  const out = [];
+  g.forEach(arr => {
+    if(arr.length === 1){ out.push(arr[0]); return; }
+    arr.sort((a,b) => (a.ts ? a.ts.getTime() : Infinity) - (b.ts ? b.ts.getTime() : Infinity));
+    const p = arr[0];
+    out.push(p.ts && p.rg && p.ts > p.rg ? arr[1] : p);
+  });
+  return out;
+}
+
+function promiseStatus(promises, allPromises){
+  const T = dayNum(new Date());
+  const all = promises.map(enrichPromise);
+  const unpaid = x => !(x.r._paid > 0);   // "ya pagó" = Pagos_Realizados > 0
+
+  // 1) VIGENTES: Fecha_Promesa == hoy
+  const vig = dedupeByMatricula(all.filter(x => x.fp && dayNum(x.fp) === T)).filter(unpaid);
+  const vigSet = new Set(vig.map(x => x.mat));
+
+  // 2) GRACIA: Fecha_Promesa < hoy <= Regreso_Gestion (sin las que ya son vigentes)
+  const gra = dedupeByMatricula(all.filter(x => x.fp && x.rg && dayNum(x.fp) < T && dayNum(x.rg) >= T))
+    .filter(x => !vigSet.has(x.mat)).filter(unpaid);
+  const graSet = new Set(gra.map(x => x.mat));
+
+  // 3) ROTAS: Regreso_Gestion <= hoy, sin vigentes/gracia ni promesas futuras
+  const futureSet = new Set(allPromises.map(enrichPromise)
+    .filter(x => x.fp && dayNum(x.fp) > T).map(x => x.mat));
+  const rot = dedupeByMatricula(all.filter(x => x.rg && dayNum(x.rg) <= T).filter(unpaid))
+    .filter(x => !vigSet.has(x.mat) && !graSet.has(x.mat) && !futureSet.has(x.mat));
+
+  return { rotas: rot.length, vigentes: vig.length, gracia: gra.length };
+}
+
 // Escribe los encabezados desde JS para no depender del HTML
 function setHeaders(){
   const h=(id,cols)=>{
-    const t=document.getElementById(id); if(!t) return;
+    const t=$(id); if(!t) return;
     let th=t.querySelector("thead");
     if(!th){th=document.createElement("thead");t.prepend(th)}
     th.innerHTML="<tr>"+cols.map(c=>`<th>${c}</th>`).join("")+"</tr>";
@@ -109,21 +161,26 @@ function setHeaders(){
   h("dailyTable",["Fecha","Promesas","Correctas","Incorrectas","Efectivas","No efectivas","% Efectividad","Monto prometido","Monto recuperado"]);
   h("advisorTable",["Asesor","Promesas","Correctas","Incorrectas","Efectivas","% Efectividad","Monto prometido","Monto recuperado"]);
 }
+
 function render(){
   setHeaders();
   const data=filtered(), promises=data.filter(r=>r._promise), correct=promises.filter(r=>r._correct), incorrect=promises.filter(r=>!r._correct), effective=promises.filter(r=>r._effective), noEff=promises.filter(r=>!r._effective);
-  kpiPromises.textContent=promises.length.toLocaleString("es-MX");
-  kpiCorrect.textContent=correct.length.toLocaleString("es-MX");kpiCorrectPct.textContent=pct(correct.length,promises.length);
-  kpiIncorrect.textContent=incorrect.length.toLocaleString("es-MX");kpiIncorrectPct.textContent=pct(incorrect.length,promises.length);
-  kpiEffective.textContent=effective.length.toLocaleString("es-MX");kpiEffectivePct.textContent=pct(effective.length,promises.length);
-  kpiAmount.textContent=money(correct.reduce((s,r)=>s+r._amount,0));
+  const n=v=>v.toLocaleString("es-MX");
+  $("kpiPromises").textContent=n(promises.length);
+  $("kpiCorrect").textContent=n(correct.length);$("kpiCorrectPct").textContent=pct(correct.length,promises.length);
+  $("kpiIncorrect").textContent=n(incorrect.length);$("kpiIncorrectPct").textContent=pct(incorrect.length,promises.length);
+  $("kpiEffective").textContent=n(effective.length);$("kpiEffectivePct").textContent=pct(effective.length,promises.length);
+  $("kpiAmount").textContent=money(correct.reduce((s,r)=>s+r._amount,0));
   // Monto recuperado: Pagos_Realizados solo de promesas efectivas
-  kpiPaid.textContent=money(effective.reduce((s,r)=>s+r._paid,0));
-  sPaid.textContent=promises.filter(r=>r._paid>0||r._effective&&r._amount>0&&r._amount-r._paid<=0).length.toLocaleString("es-MX");
-  sPending.textContent=promises.filter(r=>r._paid<=0&&r._commit&&r._commit>=new Date()).length.toLocaleString("es-MX");
-  sOverdue.textContent=promises.filter(r=>r._paid<=0&&r._commit&&r._commit<new Date()).length.toLocaleString("es-MX");
-  sNoPayment.textContent=promises.filter(r=>r._paid<=0).length.toLocaleString("es-MX");
-  renderDaily(data);renderAdvisor(data);renderContact(data);renderCharts(promises,correct,incorrect,effective,noEff);
+  $("kpiPaid").textContent=money(effective.reduce((s,r)=>s+r._paid,0));
+  $("sPaid").textContent=n(promises.filter(r=>r._paid>0||r._effective&&r._amount>0&&r._amount-r._paid<=0).length);
+
+  const st=promiseStatus(promises, rows.filter(r=>r._promise));
+  $("sBroken").textContent=n(st.rotas);
+  $("sActive").textContent=n(st.vigentes);
+  $("sGrace").textContent=n(st.gracia);
+
+  renderAdvisor(data);renderContact(data);renderCharts(promises,correct,incorrect,effective,noEff);
 }
 function renderDaily(data){
   const m=new Map();
@@ -136,26 +193,28 @@ function renderDaily(data){
     if(r._effective){x.e++;x.r+=r._paid}
   });
   const vals=[...m.entries()].sort();
-  dailyTable.querySelector("tbody").innerHTML=vals.map(([d,x])=>`<tr><td>${new Date(d+"T12:00:00").toLocaleDateString("es-MX")}</td><td>${x.p}</td><td>${x.c}</td><td>${x.i}</td><td>${x.e}</td><td>${x.c-x.e}</td><td>${pct(x.e,x.c)}</td><td>${money(x.a)}</td><td>${money(x.r)}</td></tr>`).join("")||'<tr><td colspan="9">Sin información</td></tr>';
+  $("dailyTable").querySelector("tbody").innerHTML=vals.map(([d,x])=>`<tr><td>${new Date(d+"T12:00:00").toLocaleDateString("es-MX")}</td><td>${x.p}</td><td>${x.c}</td><td>${x.i}</td><td>${x.e}</td><td>${x.c-x.e}</td><td>${pct(x.e,x.c)}</td><td>${money(x.a)}</td><td>${money(x.r)}</td></tr>`).join("")||'<tr><td colspan="9">Sin información</td></tr>';
   return vals;
 }
 function renderAdvisor(data){
   const vals=aggregate(data,"Asesor");
-  advisorTable.querySelector("tbody").innerHTML=vals.map(x=>`<tr><td>${escapeHtml(x.name)}</td><td>${x.p}</td><td>${x.c}</td><td>${x.i}</td><td>${x.e}</td><td>${pct(x.e,x.c)}</td><td>${money(x.a)}</td><td>${money(x.r)}</td></tr>`).join("")||'<tr><td colspan="8">Sin información</td></tr>';
+  $("advisorTable").querySelector("tbody").innerHTML=vals.map(x=>`<tr><td>${escapeHtml(x.name)}</td><td>${x.p}</td><td>${x.c}</td><td>${x.i}</td><td>${x.e}</td><td>${pct(x.e,x.c)}</td><td>${money(x.a)}</td><td>${money(x.r)}</td></tr>`).join("")||'<tr><td colspan="8">Sin información</td></tr>';
 }
 function renderContact(data){
   const vals=aggregate(data,"Tipo de contacto");
-  contactTable.querySelector("tbody").innerHTML=vals.map(x=>`<tr><td>${escapeHtml(x.name)}</td><td>${x.p}</td><td>${x.c}</td><td>${x.i}</td><td>${x.e}</td><td>${pct(x.e,x.c)}</td></tr>`).join("")||'<tr><td colspan="6">Sin información</td></tr>';
+  $("contactTable").querySelector("tbody").innerHTML=vals.map(x=>`<tr><td>${escapeHtml(x.name)}</td><td>${x.p}</td><td>${x.c}</td><td>${x.i}</td><td>${x.e}</td><td>${pct(x.e,x.c)}</td></tr>`).join("")||'<tr><td colspan="6">Sin información</td></tr>';
 }
 function renderCharts(promises,correct,incorrect,effective,noEff){
   const vals=renderDaily(promises);
   if(dailyChart)dailyChart.destroy();
-  dailyChart=new Chart(document.getElementById("dailyChart"),{type:"line",data:{labels:vals.map(x=>new Date(x[0]+"T12:00:00").toLocaleDateString("es-MX",{day:"2-digit",month:"short"})),datasets:[{label:"Promesas",data:vals.map(x=>x[1].p),tension:.25},{label:"Efectivas",data:vals.map(x=>x[1].e),tension:.25}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:"bottom"}},scales:{y:{beginAtZero:true}}}});
+  dailyChart=new Chart($("dailyChart"),{type:"line",data:{labels:vals.map(x=>new Date(x[0]+"T12:00:00").toLocaleDateString("es-MX",{day:"2-digit",month:"short"})),datasets:[{label:"Promesas",data:vals.map(x=>x[1].p),tension:.25},{label:"Efectivas",data:vals.map(x=>x[1].e),tension:.25}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:"bottom"}},scales:{y:{beginAtZero:true}}}});
   if(funnelChart)funnelChart.destroy();
-  funnelChart=new Chart(document.getElementById("funnelChart"),{type:"bar",data:{labels:["Promesas","Correctas","Incorrectas","Efectivas","No efectivas"],datasets:[{label:"Registros",data:[promises.length,correct.length,incorrect.length,effective.length,noEff.length]}]},options:{indexAxis:"y",responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{beginAtZero:true}}}});
+  funnelChart=new Chart($("funnelChart"),{type:"bar",data:{labels:["Promesas","Correctas","Incorrectas","Efectivas","No efectivas"],datasets:[{label:"Registros",data:[promises.length,correct.length,incorrect.length,effective.length,noEff.length]}]},options:{indexAxis:"y",responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{beginAtZero:true}}}});
 }
+
 async function load(){
-  status.textContent="Conectando con Google Sheets…";
+  const statusEl=$("status");
+  statusEl.textContent="Conectando con Google Sheets…";
   const controller=new AbortController();
   const timeout=setTimeout(()=>controller.abort(),20000);
   try{
@@ -168,16 +227,21 @@ async function load(){
     detectMoraCol(parsed.meta&&parsed.meta.fields);
     rows=parsed.data.map(classify).filter(r=>r._date||r._promise);
     populateFilters();render();
-    lastUpdate.textContent=new Date().toLocaleString("es-MX");
-    status.textContent=`${rows.length.toLocaleString("es-MX")} registros cargados correctamente.`;
+    $("lastUpdate").textContent=new Date().toLocaleString("es-MX");
+    statusEl.textContent=`${rows.length.toLocaleString("es-MX")} registros cargados correctamente.`;
   }catch(e){
     clearTimeout(timeout);
     console.error(e);
-    if(e.name==="AbortError") status.textContent="La conexión con Google Sheets tardó demasiado. Reintenta o revisa tu conexión.";
-    else status.textContent="No fue posible leer Google Sheets. Revisa que la publicación CSV esté activa y que no haya bloqueo de red (CORS).";
+    if(e.name==="AbortError") statusEl.textContent="La conexión con Google Sheets tardó demasiado. Reintenta o revisa tu conexión.";
+    else statusEl.textContent="No fue posible leer Google Sheets. Revisa que la publicación CSV esté activa y que no haya bloqueo de red (CORS).";
   }
 }
+
 document.querySelectorAll("select,input").forEach(e=>e.addEventListener("change",render));
-bannerFilter.addEventListener("input",render);
-resetBtn.addEventListener("click",()=>{dateFrom.value="";dateTo.value="";advisorFilter.value="";contactFilter.value="";supervisorFilter.value="";bannerFilter.value="";[...moraFilter.options].forEach(o=>o.selected=false);render()});
+$("bannerFilter").addEventListener("input",render);
+$("resetBtn").addEventListener("click",()=>{
+  ["dateFrom","dateTo","advisorFilter","contactFilter","supervisorFilter","bannerFilter"].forEach(id=>$(id).value="");
+  [...$("moraFilter").options].forEach(o=>o.selected=false);
+  render();
+});
 load();
