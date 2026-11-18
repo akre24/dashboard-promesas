@@ -83,7 +83,8 @@ function filtered(){
   });
 }
 
-// a = monto prometido (promesas correctas), r = monto recuperado (Pagos_Realizados de promesas efectivas)
+// a = monto prometido (promesas correctas)
+// r = monto recuperado (Pagos_Realizados de promesas correctas Y efectivas)
 function aggregate(data, field){
   const m=new Map();
   data.filter(r=>r._promise).forEach(r=>{
@@ -92,7 +93,8 @@ function aggregate(data, field){
     const x=m.get(v);
     x.p++;
     if(r._correct){x.c++;x.a+=r._amount}else{x.i++}
-    if(r._effective){x.e++;x.r+=r._paid}
+    if(r._effective){x.e++}
+    if(r._correct && r._effective){x.r+=r._paid}
   });
   return [...m.values()].sort((a,b)=>b.p-a.p);
 }
@@ -158,8 +160,8 @@ function setHeaders(){
     if(!th){th=document.createElement("thead");t.prepend(th)}
     th.innerHTML="<tr>"+cols.map(c=>`<th>${c}</th>`).join("")+"</tr>";
   };
-  h("dailyTable",["Fecha","Promesas","Correctas","Incorrectas","Efectivas","No efectivas","% Efectividad","Monto prometido","Monto recuperado"]);
-  h("advisorTable",["Asesor","Promesas","Correctas","Incorrectas","Efectivas","% Efectividad","Monto prometido","Monto recuperado"]);
+  h("dailyTable",["Fecha","Promesas","Correctas","Incorrectas","Efectivas","No efectivas","% Efectividad","Monto prometido","Monto recuperado","% Monto recuperado"]);
+  h("advisorTable",["Asesor","Promesas","Correctas","Incorrectas","Efectivas","% Efectividad","Monto prometido","Monto recuperado","% Monto recuperado"]);
 }
 
 function render(){
@@ -170,9 +172,14 @@ function render(){
   $("kpiCorrect").textContent=n(correct.length);$("kpiCorrectPct").textContent=pct(correct.length,promises.length);
   $("kpiIncorrect").textContent=n(incorrect.length);$("kpiIncorrectPct").textContent=pct(incorrect.length,promises.length);
   $("kpiEffective").textContent=n(effective.length);$("kpiEffectivePct").textContent=pct(effective.length,promises.length);
-  $("kpiAmount").textContent=money(correct.reduce((s,r)=>s+r._amount,0));
-  // Monto recuperado: Pagos_Realizados solo de promesas efectivas
-  $("kpiPaid").textContent=money(effective.reduce((s,r)=>s+r._paid,0));
+
+  // Monto prometido (promesas correctas) vs recuperado (Pagos_Realizados de promesas correctas y efectivas)
+  const totalPrometido = correct.reduce((s,r)=>s+r._amount,0);
+  const totalRecuperado = promises.filter(r=>r._correct && r._effective).reduce((s,r)=>s+r._paid,0);
+  $("kpiAmount").textContent = money(totalPrometido);
+  $("kpiPaid").textContent = money(totalRecuperado);
+  if($("kpiPaidPct")) $("kpiPaidPct").textContent = pct(totalRecuperado, totalPrometido) + " del prometido";
+
   $("sPaid").textContent=n(promises.filter(r=>r._paid>0||r._effective&&r._amount>0&&r._amount-r._paid<=0).length);
 
   const st=promiseStatus(promises, rows.filter(r=>r._promise));
@@ -190,15 +197,16 @@ function renderDaily(data){
     const x=m.get(d);
     x.p++;
     if(r._correct){x.c++;x.a+=r._amount}else{x.i++}
-    if(r._effective){x.e++;x.r+=r._paid}
+    if(r._effective){x.e++}
+    if(r._correct && r._effective){x.r+=r._paid}
   });
   const vals=[...m.entries()].sort();
-  $("dailyTable").querySelector("tbody").innerHTML=vals.map(([d,x])=>`<tr><td>${new Date(d+"T12:00:00").toLocaleDateString("es-MX")}</td><td>${x.p}</td><td>${x.c}</td><td>${x.i}</td><td>${x.e}</td><td>${x.c-x.e}</td><td>${pct(x.e,x.c)}</td><td>${money(x.a)}</td><td>${money(x.r)}</td></tr>`).join("")||'<tr><td colspan="9">Sin información</td></tr>';
+  $("dailyTable").querySelector("tbody").innerHTML=vals.map(([d,x])=>`<tr><td>${new Date(d+"T12:00:00").toLocaleDateString("es-MX")}</td><td>${x.p}</td><td>${x.c}</td><td>${x.i}</td><td>${x.e}</td><td>${x.c-x.e}</td><td>${pct(x.e,x.c)}</td><td>${money(x.a)}</td><td>${money(x.r)}</td><td>${pct(x.r,x.a)}</td></tr>`).join("")||'<tr><td colspan="10">Sin información</td></tr>';
   return vals;
 }
 function renderAdvisor(data){
   const vals=aggregate(data,"Asesor");
-  $("advisorTable").querySelector("tbody").innerHTML=vals.map(x=>`<tr><td>${escapeHtml(x.name)}</td><td>${x.p}</td><td>${x.c}</td><td>${x.i}</td><td>${x.e}</td><td>${pct(x.e,x.c)}</td><td>${money(x.a)}</td><td>${money(x.r)}</td></tr>`).join("")||'<tr><td colspan="8">Sin información</td></tr>';
+  $("advisorTable").querySelector("tbody").innerHTML=vals.map(x=>`<tr><td>${escapeHtml(x.name)}</td><td>${x.p}</td><td>${x.c}</td><td>${x.i}</td><td>${x.e}</td><td>${pct(x.e,x.c)}</td><td>${money(x.a)}</td><td>${money(x.r)}</td><td>${pct(x.r,x.a)}</td></tr>`).join("")||'<tr><td colspan="9">Sin información</td></tr>';
 }
 function renderContact(data){
   const vals=aggregate(data,"Tipo de contacto");
